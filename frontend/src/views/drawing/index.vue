@@ -3,13 +3,53 @@
     <header class="page-head">
       <div>
         <h2>实测绘图管理</h2>
-        <p class="page-desc">维护实测图纸，围绕图纸编号、绘图对象、绘图类型、比例尺做登记、筛选与状态流转。</p>
+        <p class="page-desc">
+          维护实测图纸，围绕图纸编号、绘图对象、绘图类型、比例尺做登记、筛选与状态流转；
+          顶部同步影像归档产生的图纸附件待补办事项。
+        </p>
       </div>
       <div class="page-actions">
         <button class="btn primary" type="button" @click="openCreate">登记实测图纸</button>
         <button class="btn" type="button" @click="exportRows">导出实测绘图清单</button>
       </div>
     </header>
+
+    <div class="backlog-panel">
+      <header class="backlog-head">
+        <h3>图纸附件待补办事项（影像归档跨页联动）</h3>
+        <span class="backlog-count">共 {{ backlogs.length }} 条</span>
+      </header>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>关联影像编号</th>
+            <th>拍摄对象</th>
+            <th>归档时间</th>
+            <th>所属发掘区</th>
+            <th>待办说明</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in backlogs" :key="String(item.id)">
+            <td class="mono">{{ item['关联影像编号'] }}</td>
+            <td>{{ item['拍摄对象'] }}</td>
+            <td>{{ item['归档时间'] }}</td>
+            <td>{{ item['所属发掘区'] || '未分区' }}</td>
+            <td>{{ item['待办说明'] }}</td>
+            <td class="row-actions">
+              <template v-if="isBacklogCrossArea(item, store.workArea)">
+                <span class="muted">跨发掘区·只读</span>
+              </template>
+              <button v-else class="link" type="button" @click="resolveBacklog(item)">补办完成·核销</button>
+            </td>
+          </tr>
+          <tr v-if="!backlogs.length">
+            <td colspan="6" class="empty-state">暂无图纸附件待补办事项，影像页提交归档后会自动追加到这里</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <div class="stat-row">
       <article v-for="item in stats" :key="item.label" class="stat-card">
@@ -79,8 +119,15 @@ import {
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import {
+  isBacklogCrossArea,
+  listDrawingBacklogs,
+  resolveDrawingBacklog,
+} from '@/api/photo-workbench'
 import type { EntryRow } from '@/data/types'
+import { useSessionStore } from '@/stores/session'
 
+const store = useSessionStore()
 const meta = moduleMeta('drawing')
 const columns = ["图纸编号", "绘图对象", "绘图类型", "比例尺", "绘图人", "校核人", "完成日期", "图纸状态"]
 const actions = ["提交校核", "确认校核", "退回修改"]
@@ -92,6 +139,11 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const backlogTick = ref(0)
+const backlogs = computed(() => {
+  void backlogTick.value
+  return listDrawingBacklogs()
+})
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
@@ -110,6 +162,16 @@ function exportRows() {
 
 function openCreate() {
   errorMessage.value = '实测图纸登记入口尚未接入审批流'
+}
+
+function resolveBacklog(item: EntryRow) {
+  errorMessage.value = ''
+  const result = resolveDrawingBacklog(Number(item.id), store.workArea)
+  if (!result.ok) {
+    errorMessage.value = result.message
+    return
+  }
+  backlogTick.value += 1
 }
 
 function runAction(action: string, row: EntryRow) {
@@ -135,3 +197,19 @@ function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.backlog-panel {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--brand);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+.backlog-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.backlog-head h3 { margin: 0; font-size: 14px; }
+.backlog-count { font-size: 12px; color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.muted { color: var(--muted); }
+</style>
